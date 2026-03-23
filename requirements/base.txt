@@ -1,0 +1,28 @@
+# Django
+Django==5.0.1
+
+# Database
+psycopg2-binary==2.9.9
+dj-database-url==2.1.0
+
+# Environment variables
+python-decouple==3.8
+
+# Timezone
+pytz==2024.1
+
+# Forms
+django-crispy-forms==2.1
+crispy-tailwind==0.5.0
+
+# Scheduling
+django-cron==0.6.0
+
+# Security
+django-ratelimit==4.1.0
+
+# Static files (для production)
+whitenoise==6.6.0
+
+# WSGI server (для production)
+gunicorn==21.2.0
