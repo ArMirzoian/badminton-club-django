@@ -1,0 +1,144 @@
+"""
+Registration модели - следует engineering_rules.md
+КРИТИЧНО: UniqueConstraint для защиты от дублей!
+"""
+from django.db import models
+from django.conf import settings
+from django.utils import timezone
+
+
+class GameRegistration(models.Model):
+    """
+    Запись на игру.
+    
+    КРИТИЧНО:
+    - UniqueConstraint(user, game, condition=is_active=True)
+    - queue_position управляется ТОЛЬКО через rebuild_queue()
+    - status управляется ТОЛЬКО через rebuild_queue()
+    """
+    
+    STATUS_CHOICES = [
+        ('main', 'Основа'),
+        ('reserve', 'Резерв'),
+        ('cancelled', 'Отменено'),
+    ]
+    
+    SOURCE_CHOICES = [
+        ('player', 'Игрок'),
+        ('admin', 'Админ'),
+        ('auto', 'Автоматически'),
+    ]
+    
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='registrations',
+        verbose_name='Пользователь'
+    )
+    
+    game = models.ForeignKey(
+        'games.Game',
+        on_delete=models.CASCADE,
+        related_name='registrations',
+        verbose_name='Игра'
+    )
+    
+    status = models.CharField(
+        'Статус',
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='reserve',
+        db_index=True
+    )
+    
+    queue_position = models.PositiveIntegerField(
+        'Позиция в очереди',
+        null=True, blank=True,
+        db_index=True,
+        help_text='Управляется rebuild_queue()'
+    )
+    
+    source = models.CharField(
+        'Источник',
+        max_length=20,
+        choices=SOURCE_CHOICES,
+        default='player'
+    )
+    
+    admin_priority = models.BooleanField(
+        'Приоритет админа',
+        default=False,
+        help_text='Админ переместил вне очереди'
+    )
+    
+    registered_at = models.DateTimeField('Зарегистрирован', auto_now_add=True, db_index=True)
+    is_active = models.BooleanField('Активна', default=True, db_index=True)
+    deleted_at = models.DateTimeField('Удалено', null=True, blank=True)
+    
+    class Meta:
+        db_table = 'game_registrations'
+        verbose_name = 'Запись на игру'
+        verbose_name_plural = 'Записи на игры'
+        ordering = ['queue_position']
+        
+        # 🔥 КРИТИЧНО: UniqueConstraint с condition!
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'game'],
+                condition=models.Q(is_active=True),
+                name='unique_active_registration_per_game'
+            )
+        ]
+        
+        indexes = [
+            models.Index(fields=['game', 'status', 'is_active']),
+            models.Index(fields=['registered_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.user.display_name} → {self.game}"
+
+
+class RegistrationEvent(models.Model):
+    """
+    История изменений записи (аудит).
+    """
+    
+    EVENT_TYPE_CHOICES = [
+        ('created', 'Создана'),
+        ('status_changed', 'Статус изменён'),
+        ('status_changed_by_rebuild', 'Статус изменён rebuild_queue'),
+        ('cancelled', 'Отменена'),
+        ('admin_override', 'Админ переместил'),
+    ]
+    
+    registration = models.ForeignKey(
+        GameRegistration,
+        on_delete=models.CASCADE,
+        related_name='events',
+        verbose_name='Запись'
+    )
+    
+    event_type = models.CharField('Тип события', max_length=50, choices=EVENT_TYPE_CHOICES)
+    old_status = models.CharField('Старый статус', max_length=20, blank=True)
+    new_status = models.CharField('Новый статус', max_length=20, blank=True)
+    
+    performed_by_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='performed_events',
+        verbose_name='Выполнил'
+    )
+    
+    performed_by_system = models.BooleanField('Выполнено системой', default=False)
+    created_at = models.DateTimeField('Создано', auto_now_add=True, db_index=True)
+    
+    class Meta:
+        db_table = 'registration_events'
+        verbose_name = 'Событие записи'
+        verbose_name_plural = 'События записей'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.event_type} - {self.registration}"
