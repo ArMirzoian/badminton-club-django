@@ -1,0 +1,70 @@
+"""
+Game модель - следует engineering_rules.md
+"""
+from django.db import models
+from django.conf import settings
+from django.utils import timezone
+
+
+class Game(models.Model):
+    """
+    Модель игры в бадминтон.
+    
+    Ключевые поля:
+    - game_date: дата игры (среда)
+    - main_limit: лимит основного состава (настраивается админом)
+    - is_open: открыта ли запись
+    
+    Флаги идемпотентности для Celery tasks (критично!):
+    - registration_open_email_sent
+    - reminder_tuesday_sent
+    - reminder_game_day_sent
+    - registration_closed_processed
+    """
+    
+    game_date = models.DateField('Дата игры', db_index=True)
+    start_time = models.TimeField('Время начала', default='21:00')
+    location_name = models.CharField('Площадка', max_length=200, default='С/К ВЫСШАЯ ЛИГА')
+    location_address = models.TextField('Адрес', default=settings.VENUE_ADDRESS)
+    main_limit = models.PositiveIntegerField('Лимит основы', default=settings.MAX_PLAYERS)
+    
+    registration_open_at = models.DateTimeField('Открытие записи')
+    registration_close_at = models.DateTimeField('Закрытие записи')
+    is_open = models.BooleanField('Запись открыта', default=False, db_index=True)
+    
+    # Флаги идемпотентности (критично для Celery!)
+    registration_open_email_sent = models.BooleanField('Email открытия отправлен', default=False)
+    reminder_tuesday_sent = models.BooleanField('Напоминание Вт отправлено', default=False)
+    reminder_game_day_sent = models.BooleanField('Напоминание в день игры отправлено', default=False)
+    registration_closed_processed = models.BooleanField('Закрытие обработано', default=False)
+    
+    created_at = models.DateTimeField('Создано', auto_now_add=True)
+    updated_at = models.DateTimeField('Обновлено', auto_now=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True, blank=True,
+        related_name='created_games',
+        verbose_name='Создал'
+    )
+    
+    class Meta:
+        db_table = 'games'
+        verbose_name = 'Игра'
+        verbose_name_plural = 'Игры'
+        ordering = ['-game_date']
+        indexes = [
+            models.Index(fields=['-game_date']),
+            models.Index(fields=['is_open']),
+        ]
+    
+    def __str__(self):
+        return f"Игра {self.game_date.strftime('%d.%m.%Y')}"
+    
+    @property
+    def main_count(self):
+        return self.registrations.filter(status='main', is_active=True).count()
+    
+    @property
+    def reserve_count(self):
+        return self.registrations.filter(status='reserve', is_active=True).count()
