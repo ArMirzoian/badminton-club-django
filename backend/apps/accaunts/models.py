@@ -1,7 +1,7 @@
 """
 User модель - следует engineering_rules.md
 """
-from django.contrib.auth.models.AbstractUser
+from django.contrib.auth.models import AbstractUser
 from django.db import models
 from django.utils import timezone
 
